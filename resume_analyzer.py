@@ -5,7 +5,7 @@ import google.genai as genai
 import pdfplumber
 from flask import Flask, jsonify, render_template, request
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyBHcQh87wsa1yRHPOnNCFW9l56QPxN7KOQ")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR API KEY")
 ALLOWED_EXTENSIONS = {"pdf"}
 
 app = Flask(__name__)
