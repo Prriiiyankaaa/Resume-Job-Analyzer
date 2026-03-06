@@ -5,71 +5,260 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Resume Analyzer</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      background: #f7f7f7;
-      color: #222;
-    }
-    .container {
-      max-width: 900px;
-      margin: 40px auto;
-      background: white;
-      padding: 24px;
-      border-radius: 10px;
-      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-    }
-    h1 {
-      margin-top: 0;
-      font-size: 24px;
-    }
-    textarea {
-      width: 100%;
-      min-height: 160px;
-      padding: 12px;
-      font-size: 14px;
-      border: 1px solid #d3d3d3;
-      border-radius: 8px;
-      box-sizing: border-box;
-      resize: vertical;
-    }
-    button {
-      margin-top: 12px;
-      background: #2563eb;
-      color: white;
-      border: none;
-      padding: 10px 16px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-    .meta {
-      margin-top: 14px;
-      font-size: 13px;
-      color: #444;
-    }
-    .result {
-      margin-top: 16px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 14px;
-      white-space: pre-wrap;
-      line-height: 1.5;
-      min-height: 80px;
-    }
-    .error {
-      color: #b91c1c;
-    }
-  </style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=DM+Mono:wght@300;400&family=DM+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0d0d0f;
+    --surface: #141417;
+    --surface-2: #1c1c21;
+    --border: rgba(255, 255, 255, 0.07);
+    --border-hover: rgba(255, 200, 100, 0.3);
+    --text-primary: #f0ece4;
+    --text-secondary: #8a8680;
+    --text-muted: #4a4845;
+    --accent: #e8a428;
+    --accent-glow: rgba(232, 164, 40, 0.15);
+    --accent-dim: #b8821e;
+    --error: #e05c5c;
+    --error-bg: rgba(224, 92, 92, 0.08);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(232, 164, 40, 0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 40% 30% at 85% 80%, rgba(80, 60, 200, 0.04) 0%, transparent 50%);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container {
+    max-width: 860px;
+    margin: 60px auto;
+    padding: 0 24px;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Header ── */
+  h1 {
+    margin: 0 0 6px;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+    line-height: 1.2;
+  }
+
+  h1 span { color: var(--accent); }
+
+  p {
+    margin: 0 0 24px;
+    font-size: 13px;
+    color: var(--text-muted);
+    letter-spacing: 0.03em;
+    line-height: 1.6;
+  }
+
+  /* ── File input ── */
+  #resumeInput {
+    display: block;
+    width: 100%;
+    margin-bottom: 16px;
+    padding: 0;
+    font-family: 'DM Mono', monospace;
+    font-size: 12.5px;
+    font-weight: 300;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition);
+    /* make the whole row clickable and nicely padded */
+    padding: 12px 16px;
+  }
+
+  #resumeInput:hover {
+    border-color: rgba(232, 164, 40, 0.3);
+    background: rgba(232, 164, 40, 0.03);
+  }
+
+  #resumeInput:focus {
+    outline: none;
+    border-color: rgba(232, 164, 40, 0.45);
+  }
+
+  #resumeInput::file-selector-button {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: #0d0d0f;
+    background: var(--accent);
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    margin-right: 14px;
+    cursor: pointer;
+    transition: background var(--transition);
+  }
+
+  #resumeInput::file-selector-button:hover {
+    background: #f0b030;
+  }
+
+  /* ── Textarea ── */
+  textarea {
+    display: block;
+    width: 100%;
+    min-height: 148px;
+    margin-bottom: 0; /* button follows immediately below */
+    padding: 14px 16px;
+    font-family: 'DM Mono', monospace;
+    font-size: 13.5px;
+    font-weight: 300;
+    line-height: 1.65;
+    color: var(--text-primary);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    resize: vertical;
+    transition: border-color var(--transition), box-shadow var(--transition);
+    outline: none;
+    caret-color: var(--accent);
+  }
+
+  textarea::placeholder { color: var(--text-muted); }
+
+  textarea:focus {
+    border-color: rgba(232, 164, 40, 0.4);
+    box-shadow: inset 0 0 0 1px rgba(232, 164, 40, 0.08),
+                0 0 0 3px rgba(232, 164, 40, 0.05);
+  }
+
+  /* ── Button ── */
+  button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    background: var(--accent);
+    color: #0d0d0f;
+    border: none;
+    padding: 11px 22px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+    overflow: hidden;
+  }
+
+  button:hover:not(:disabled) {
+    background: #f0b030;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(232, 164, 40, 0.28);
+  }
+
+  button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: none;
+  }
+
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* ── Meta ── */
+  .meta {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    font-weight: 300;
+    min-height: 18px; /* prevents layout jump when empty */
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: opacity var(--transition);
+  }
+
+  /* ── Result box ── */
+  .result {
+    position: relative;
+    margin-top: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    white-space: pre-wrap;
+    line-height: 1.7;
+    min-height: 80px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    color: var(--text-secondary);
+    transition: border-color var(--transition), color var(--transition);
+  }
+
+  .result.has-content {
+    border-color: rgba(232, 164, 40, 0.14);
+    color: var(--text-primary);
+  }
+
+  .result.has-content::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 24px; right: 24px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(232,164,40,0.25), transparent);
+  }
+
+  .result.error {
+    color: var(--error);
+    background: var(--error-bg);
+    border-color: rgba(224, 92, 92, 0.2);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+  }
+
+  /* ── Scrollbars ── */
+  textarea::-webkit-scrollbar,
+  .result::-webkit-scrollbar { width: 4px; }
+  textarea::-webkit-scrollbar-track,
+  .result::-webkit-scrollbar-track { background: transparent; }
+  textarea::-webkit-scrollbar-thumb,
+  .result::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  textarea::-webkit-scrollbar-thumb:hover,
+  .result::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+  /* ── Selection ── */
+  ::selection { background: rgba(232, 164, 40, 0.2); color: var(--text-primary); }
+</style>
 </head>
 <body>
   <div class="container">
-    <h1>Resume Analyzer</h1>
+    <h1>Resume <span>Analyzer</span></h1>
     <p>Upload a resume PDF and enter job description to get AI-based analysis.</p>
 
     <input id="resumeInput" type="file" accept="application/pdf" />
@@ -91,6 +280,9 @@
     analyzeBtn.addEventListener('click', async () => {
       const resumeFile = resumeInput.files[0];
       const jobDescription = jdInput.value.trim();
+
+      resultBox.classList.remove('error', 'has-content');
+
       if (!resumeFile) {
         resultBox.textContent = 'Please upload a resume PDF.';
         resultBox.classList.add('error');
@@ -105,7 +297,6 @@
 
       analyzeBtn.disabled = true;
       analyzeBtn.textContent = 'Analyzing...';
-      resultBox.classList.remove('error');
       resultBox.textContent = 'Generating response...';
       metaText.textContent = '';
 
@@ -126,7 +317,14 @@
         }
 
         resultBox.textContent = data.response || 'No response received.';
-        metaText.textContent = `Analyzed file: ${resumeFile.name}`;
+        resultBox.classList.add('has-content');
+
+        const dbName = data.vector_db || 'N/A';
+        const indexed = data.chunks_indexed ?? 'N/A';
+        const retrieved = data.chunks_retrieved ?? 'N/A';
+        const distance = data.avg_distance ?? 'N/A';
+
+        metaText.textContent = `Analyzed: ${resumeFile.name} | Vector DB: ${dbName} | Indexed Chunks: ${indexed} | Retrieved Chunks: ${retrieved} | Avg Distance: ${distance}`;
       } catch (error) {
         resultBox.classList.add('error');
         resultBox.textContent = `Error: ${error.message}`;
