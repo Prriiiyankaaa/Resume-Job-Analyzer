@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resume Analyzer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      background: #f7f7f7;
+      color: #222;
+    }
+    .container {
+      max-width: 900px;
+      margin: 40px auto;
+      background: white;
+      padding: 24px;
+      border-radius: 10px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 24px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      padding: 12px;
+      font-size: 14px;
+      border: 1px solid #d3d3d3;
+      border-radius: 8px;
+      box-sizing: border-box;
+      resize: vertical;
+    }
+    button {
+      margin-top: 12px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .meta {
+      margin-top: 14px;
+      font-size: 13px;
+      color: #444;
+    }
+    .result {
+      margin-top: 16px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 14px;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      min-height: 80px;
+    }
+    .error {
+      color: #b91c1c;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Resume Analyzer</h1>
+    <p>Upload a resume PDF and enter job description to get AI-based analysis.</p>
+
+    <input id="resumeInput" type="file" accept="application/pdf" />
+
+    <textarea id="jdInput" placeholder="Paste job description here..."></textarea>
+    <button id="analyzeBtn">Analyze Resume</button>
+
+    <div class="meta" id="metaText"></div>
+    <div class="result" id="resultBox">Response will appear here...</div>
+  </div>
+
+  <script>
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const resumeInput = document.getElementById('resumeInput');
+    const jdInput = document.getElementById('jdInput');
+    const resultBox = document.getElementById('resultBox');
+    const metaText = document.getElementById('metaText');
+
+    analyzeBtn.addEventListener('click', async () => {
+      const resumeFile = resumeInput.files[0];
+      const jobDescription = jdInput.value.trim();
+      if (!resumeFile) {
+        resultBox.textContent = 'Please upload a resume PDF.';
+        resultBox.classList.add('error');
+        return;
+      }
+
+      if (!jobDescription) {
+        resultBox.textContent = 'Please enter a job description.';
+        resultBox.classList.add('error');
+        return;
+      }
+
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = 'Analyzing...';
+      resultBox.classList.remove('error');
+      resultBox.textContent = 'Generating response...';
+      metaText.textContent = '';
+
+      try {
+        const formData = new FormData();
+        formData.append('resume', resumeFile);
+        formData.append('job_description', jobDescription);
+
+        const response = await fetch('/analyze', {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Something went wrong.');
+        }
+
+        resultBox.textContent = data.response || 'No response received.';
+        metaText.textContent = `Analyzed file: ${resumeFile.name}`;
+      } catch (error) {
+        resultBox.classList.add('error');
+        resultBox.textContent = `Error: ${error.message}`;
+      } finally {
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = 'Analyze Resume';
+      }
+    });
+  </script>
+</body>
+</html>
