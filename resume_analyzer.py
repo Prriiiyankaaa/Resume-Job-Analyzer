@@ -1,77 +1,96 @@
-import PyPDF2
-import chromadb
-from chromadb.utils import embedding_functions
-from sentence_transformers import SentenceTransformer, util
+import os
+import tempfile
 
-# 1. Setup Hugging Face Embedding Function for ChromaDB
-# This model is lightweight and excellent for semantic similarity
-model_name = "all-MiniLM-L6-v2"
-hf_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model_name)
+import google.genai as genai
+import pdfplumber
+from flask import Flask, jsonify, render_template, request
 
-# 2. Initialize ChromaDB (Ephemeral/In-Memory for this example)
-client = chromadb.Client()
-collection = client.get_or_create_collection(name="resume_analysis", embedding_function=hf_ef)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyBHcQh87wsa1yRHPOnNCFW9l56QPxN7KOQ")
+ALLOWED_EXTENSIONS = {"pdf"}
 
-def extract_text_from_pdf(pdf_path):
-    """Extracts all text from a PDF file."""
+app = Flask(__name__)
+
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+
+def read_resume(pdf_path):
     text = ""
-    with open(pdf_path, "rb") as f:
-        reader = PyPDF2.PdfReader(f)
-        for page in reader.pages:
-            content = page.extract_text()
-            if content:
-                text += content
-    return text
-count = 0
-def analyze_resume(resume_pdf_path, job_description_text):
-    global count
-    count += 1
-    # Extract text from resume
-    resume_text = extract_text_from_pdf(resume_pdf_path)
-    
-    resume_id = "resume_unique_01"
-    
-    existing = collection.get(ids=[resume_id])
-    
-    if not existing['ids']:
-        print("New resume detected. Extracting and embedding...")
-        resume_text = extract_text_from_pdf(resume_pdf_path)
-        collection.add(documents=[resume_text], ids=[resume_id])
-    else:
-        print("Resume found in local vector storage. Skipping extraction.")
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text
+    return text.strip()
 
-    # Query logic remains the same
-    results = collection.query(
-        query_texts=[job_description_text],
-        n_results=1,
-        include=["distances"]
-    )
-    
-    # Calculate and display score
-    distance = results['distances'][0][0]
-    similarity_score = max(0, (1 - distance) * 100)
-    print(f"Match Accuracy: {similarity_score:.2f}%")
-    
-    if similarity_score > 70:
-        print("Status: Strong Match")
-    elif similarity_score > 40:
-        print("Status: Partial Match")
-    else:
-        print("Status: Low Correlation")
 
-# --- Example Usage ---
-if __name__ == "__main__":
-    # Path to your resume PDF
-    resume_path = "resume.pdf" 
-    
-    # Job Description as a paragraph
-    jd = """
-    We are looking for a Software Engineer with experience in Python, 
-    React, and Vector Databases. Candidates should have a strong 
-    understanding of Machine Learning APIs and cloud deployments.
-    """
-    
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def extract_uploaded_pdf_text(uploaded_file):
+    suffix = ".pdf"
+    temp_path = None
     try:
-        analyze_resume(resume_path, jd)
-    except FileNotFoundError:
-        print("Error: Please provide a valid path to a 'resume.pdf' file.")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            uploaded_file.save(tmp)
+            temp_path = tmp.name
+        return read_resume(temp_path)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def analyze_resume_against_jd(resume_text, job_description):
+
+    prompt = f"""
+Persona: Senior Technical Recruiter.
+Task: Analyze the retrieved resume against the JD.
+
+Resume:
+{resume_text}
+
+Job Description:
+{job_description}
+
+Provide: Match Score, Gap Analysis, Google XYZ Bullet Points, and Interview Prep.
+"""
+
+    response = client.models.generate_content(
+        model="models/gemini-2.5-flash",
+        contents=prompt,
+    )
+    return response.text
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    job_description = (request.form.get("job_description") or "").strip()
+    resume_file = request.files.get("resume")
+
+    if resume_file is None or not resume_file.filename:
+        return jsonify({"error": "Please upload a resume PDF."}), 400
+
+    if not allowed_file(resume_file.filename):
+        return jsonify({"error": "Only PDF files are allowed."}), 400
+
+    if not job_description:
+        return jsonify({"error": "job_description is required"}), 400
+
+    try:
+        resume_text = extract_uploaded_pdf_text(resume_file)
+        if not resume_text:
+            return jsonify({"error": "Could not extract text from the uploaded PDF."}), 400
+
+        analysis = analyze_resume_against_jd(resume_text, job_description)
+        return jsonify({"response": analysis})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
