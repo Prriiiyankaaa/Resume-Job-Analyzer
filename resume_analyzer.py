@@ -12,7 +12,6 @@ app = Flask(__name__)
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-
 def read_resume(pdf_path):
     text = ""
     with pdfplumber.open(pdf_path) as pdf:
