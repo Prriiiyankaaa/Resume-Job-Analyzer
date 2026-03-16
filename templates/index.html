@@ -64,6 +64,7 @@
     letter-spacing: -0.5px;
     color: var(--text-primary);
     line-height: 1.2;
+    margin-bottom:6px;
   }
 
   h1 span { color: var(--accent); }
@@ -74,6 +75,7 @@
     color: var(--text-muted);
     letter-spacing: 0.03em;
     line-height: 1.6;
+    margin-bottom:20px;
   }
 
   /* ── File input ── */
@@ -262,12 +264,15 @@
     <p>Upload a resume PDF and enter job description to get AI-based analysis.</p>
 
     <input id="resumeInput" type="file" accept="application/pdf" />
-
+    <div id="fileName" class="meta"></div>
     <textarea id="jdInput" placeholder="Paste job description here..."></textarea>
     <button id="analyzeBtn">Analyze Resume</button>
 
     <div class="meta" id="metaText"></div>
     <div class="result" id="resultBox">Response will appear here...</div>
+    <div class="footer">
+      AI Resume Analyzer • Built with Gemini LLM, ChromaDB, and Retrieval-Augmented Generation
+    </div>
   </div>
 
   <script>
@@ -276,8 +281,15 @@
     const jdInput = document.getElementById('jdInput');
     const resultBox = document.getElementById('resultBox');
     const metaText = document.getElementById('metaText');
+    const fileName=document.getElementById('filename');
+
+    resumeInput.addEventListener("change",()=>{
+      const file=resumeInput.files[0];
+      fileName.textContent=file?`Selected Resume: ${file.name}`:"";
+    });
 
     analyzeBtn.addEventListener('click', async () => {
+      
       const resumeFile = resumeInput.files[0];
       const jobDescription = jdInput.value.trim();
 
