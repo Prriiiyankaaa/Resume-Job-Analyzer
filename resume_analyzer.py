@@ -1,6 +1,7 @@
 import os
 import tempfile
 import uuid
+import hashlib
 
 import chromadb
 import google.genai as genai
@@ -74,7 +75,7 @@ def extract_uploaded_pdf_text(uploaded_file):
             os.remove(temp_path)
 
 
-def chunk_text(text, chunk_size=1200, overlap=200):
+def chunk_text(text, chunk_size=500, overlap=100):
     chunks = []
     start = 0
     text_length = len(text)
@@ -90,10 +91,18 @@ def chunk_text(text, chunk_size=1200, overlap=200):
 
     return chunks
 
-
+def generate_hash(text): 
+    return hashlib.md5(text.encode()).hexdigest()
+    
 def store_resume_chunks(resume_text, original_filename):
     chunks = chunk_text(resume_text)
-    doc_set_id = str(uuid.uuid4())
+    doc_hash = generate_hash(resume_text)
+    doc_set_id = doc_hash
+    # doc_set_id = str(uuid.uuid4())
+    existing = collection.get(where={"doc_set_id": doc_set_id})
+    if existing["ids"]:
+        return doc_set_id, len(existing["ids"]) 
+    
 
     ids = [f"{doc_set_id}_{index}" for index in range(len(chunks))]
     metadatas = [
@@ -113,7 +122,7 @@ def store_resume_chunks(resume_text, original_filename):
     return doc_set_id, len(chunks)
 
 
-def retrieve_relevant_chunks(job_description, doc_set_id, n_results=4):
+def retrieve_relevant_chunks(job_description, doc_set_id, n_results=6):
     results = collection.query(
         query_texts=[job_description],
         where={"doc_set_id": doc_set_id},
@@ -130,15 +139,20 @@ def retrieve_relevant_chunks(job_description, doc_set_id, n_results=4):
 def analyze_resume_against_jd(resume_context, job_description):
 
     prompt = f"""
-    You are a strict ATS (Applicant Tracking System).
-    Rules:
+ You are a strict ATS (Applicant Tracking System) acting as a Senior Technical Recruiter.
+ 
+Rules:
 - Be extremely critical.
 - If resume does NOT match job description, give LOW score.
 - Do NOT assume skills not present in resume.
 - Do NOT hallucinate.
 - Base your answer ONLY on provided resume context.
 - If information is missing, explicitly mention it
-#     -Return ONLY valid response, no markdown, no backticks, no extra text, no astrick, no bold, no italics, no underline, no *.
+
+Task:
+Analyze how well the resume matches the job description.
+
+# -Return ONLY valid response, no markdown, no backticks, no extra text, no astrick, no bold, no italics, no underline, no *.
 # Persona: Senior Technical Recruiter.
 # Task: Analyze the retrieved resume context (retrieved from vector database) against the JD.
 
@@ -155,8 +169,14 @@ Gap Analysis:
 - Missing skills:
 - Weak areas:
 
+Relevant Matches:
+- Matching skills:
 
-Provide: Match Score, Gap Analysis, Google XYZ Bullet Points, and Interview Prep.
+Final Verdict:
+- Strong / Moderate / Weak fit
+
+
+# Provide: Match Score, Gap Analysis, Google XYZ Bullet Points, and Interview Prep.
 """
 
     response = client.models.generate_content(
@@ -194,7 +214,7 @@ def analyze():
         retrieved_context, distances, retrieved_chunks = retrieve_relevant_chunks(
             job_description,
             doc_set_id,
-            n_results=min(4, chunk_count),
+            n_results=min(6, chunk_count),
         )
 
         if not retrieved_context:
