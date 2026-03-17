@@ -130,16 +130,31 @@ def retrieve_relevant_chunks(job_description, doc_set_id, n_results=4):
 def analyze_resume_against_jd(resume_context, job_description):
 
     prompt = f"""
+    You are a strict ATS (Applicant Tracking System).
     Rules:
-    -Return ONLY valid response, no markdown, no backticks, no extra text, no astrick, no bold, no italics, no underline, no *.
-Persona: Senior Technical Recruiter.
-Task: Analyze the retrieved resume context (retrieved from vector database) against the JD.
+- Be extremely critical.
+- If resume does NOT match job description, give LOW score.
+- Do NOT assume skills not present in resume.
+- Do NOT hallucinate.
+- Base your answer ONLY on provided resume context.
+- If information is missing, explicitly mention it
+#     -Return ONLY valid response, no markdown, no backticks, no extra text, no astrick, no bold, no italics, no underline, no *.
+# Persona: Senior Technical Recruiter.
+# Task: Analyze the retrieved resume context (retrieved from vector database) against the JD.
 
 Resume:
 {resume_context}
 
 Job Description:
 {job_description}
+
+Output format:
+Match Score: (0-100)
+
+Gap Analysis:
+- Missing skills:
+- Weak areas:
+
 
 Provide: Match Score, Gap Analysis, Google XYZ Bullet Points, and Interview Prep.
 """
