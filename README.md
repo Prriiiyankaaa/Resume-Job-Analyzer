@@ -20,7 +20,6 @@ A Python web application that analyzes resumes against job descriptions to help 
 ```
 Resume-Job-Analyzer/
 ├── resume_analyzer.py      # Main application — analysis logic and web server
-├── view_db.py              # Utility script to inspect stored results
 ├── tempCodeRunnerFile.py   # Auto-generated temp file (can be ignored)
 ├── templates/              # HTML templates for the web interface
 └── README.md
