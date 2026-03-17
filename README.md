@@ -86,11 +86,6 @@ Resume-Job-Analyzer/
 2. Upload your resume (PDF format).
 3. Paste or enter the job description into the text field.
 4. Click **Analyze** to generate your match score and keyword breakdown.
-5. View past results by running:
-
-   ```bash
-   python view_db.py
-   ```
 
 ---
 
