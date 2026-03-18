@@ -13,27 +13,154 @@ ALLOWED_EXTENSIONS = {"pdf"}
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CHROMA_PATH = os.path.join(BASE_DIR, "resume_vault")
 
-app = Flask(__name__)
 
+JD_MIN_CHARS = 80
+JD_MIN_WORDS = 15
+JD_MIN_UNIQUE_WORDS = 10
+JD_MIN_ENTROPY = 3.5          
+RESUME_MIN_CHARS = 150
+RESUME_MIN_WORDS = 40
+RESUME_KEYWORD_THRESHOLD = 3  
+RESUME_KEYWORDS = {
+    "experience", "education", "skills", "work", "project", "projects",
+    "university", "college", "degree", "engineer", "developer", "designer",
+    "manager", "analyst", "intern", "internship", "company", "organization",
+    "responsible", "developed", "managed", "led", "built", "implemented",
+    "bachelor", "master", "certification", "employment", "professional",
+    "objective", "summary", "profile", "achievements", "accomplishments",
+    "technologies", "languages", "framework", "database", "software",
+    "graduated", "gpa", "cgpa", "volunteer", "publications", "research",
+}
+
+JD_DOMAIN_KEYWORDS = {
+    "engineer", "developer", "designer", "manager", "analyst", "scientist",
+    "architect", "lead", "senior", "junior", "full", "stack", "frontend",
+    "backend", "data", "machine", "learning", "software", "hardware",
+    "python", "java", "javascript", "react", "node", "sql", "cloud",
+    "aws", "azure", "gcp", "devops", "agile", "scrum", "product",
+    "experience", "required", "preferred", "qualification", "skills",
+    "responsibility", "responsibilities", "role", "team", "work",
+    "position", "job", "candidate", "hire", "hiring", "apply", "salary",
+    "degree", "bachelor", "master", "phd", "communication", "collaborate",
+    "years", "minimum", "bonus", "remote", "hybrid", "onsite",
+}
+
+app = Flask(__name__)
 client = genai.Client(api_key=GEMINI_API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 
 
-class GeminiEmbeddingFunction:
-    def __call__(self, input):
-        embeddings = []
-        for text in input:
-            result = client.models.embed_content(
-                model="models/gemini-embedding-001",
-                contents=text,
-            )
-            embeddings.append(result.embeddings[0].values)
-        return embeddings
 
+def shannon_entropy(text: str) -> float:
+    """Character-level Shannon entropy (bits). Low → repetitive / mashed text."""
+    text = text.lower()
+    freq = {}
+    for ch in text:
+        freq[ch] = freq.get(ch, 0) + 1
+    total = len(text)
+    return -sum((c / total) * log2(c / total) for c in freq.values() if c)
+
+
+def validate_job_description(jd: str) -> tuple[bool, str | None]:
+    """
+    Return (True, None) if the JD looks legitimate,
+    or (False, <human-readable error message>) otherwise.
+    """
+    words = jd.split()
+    word_count = len(words)
+    unique_words = {w.lower().strip(".,;:!?\"'") for w in words}
+
+    if len(jd) < JD_MIN_CHARS:
+        return False, (
+            f"Job description is too short ({len(jd)} characters). "
+            "Please paste a real job description with at least a few sentences."
+        )
+
+    if word_count < JD_MIN_WORDS:
+        return False, (
+            f"Job description only has {word_count} word(s). "
+            "A valid job description should have at least 15 words."
+        )
+
+    if len(unique_words) < JD_MIN_UNIQUE_WORDS:
+        return False, (
+            "Job description has too little word variety — it may be repeated text or placeholder content. "
+            "Please enter a real job description."
+        )
+
+    entropy = shannon_entropy(jd)
+    if entropy < JD_MIN_ENTROPY:
+        return False, (
+            "Job description appears to contain random or repetitive characters. "
+            "Please paste a real job description."
+        )
+
+    # At least a few domain-relevant words must appear
+    jd_lower = jd.lower()
+    domain_hits = sum(1 for kw in JD_DOMAIN_KEYWORDS if kw in jd_lower)
+    if domain_hits < 2:
+        return False, (
+            "Job description doesn't appear to describe a real job role. "
+            "Please paste a full job posting (title, responsibilities, requirements, etc.)."
+        )
+
+    return True, None
+
+
+def validate_resume_text(text: str) -> tuple[bool, str | None]:
+    """
+    Return (True, None) if the extracted text looks like a resume,
+    or (False, <human-readable error message>) otherwise.
+    """
+    if len(text) < RESUME_MIN_CHARS:
+        return False, (
+            "The uploaded PDF appears to be empty or contains almost no text. "
+            "Please upload a text-based resume PDF (not a scanned image)."
+        )
+
+    words = text.split()
+    if len(words) < RESUME_MIN_WORDS:
+        return False, (
+            f"Only {len(words)} words were extracted from the PDF. "
+            "The file may be image-only. Please upload a text-selectable resume PDF."
+        )
+
+    text_lower = text.lower()
+    keyword_hits = sum(1 for kw in RESUME_KEYWORDS if kw in text_lower)
+    if keyword_hits < RESUME_KEYWORD_THRESHOLD:
+        return False, (
+            "The uploaded PDF does not appear to be a resume. "
+            "Please upload a CV or resume containing sections like Experience, Education, or Skills."
+        )
+
+    return True, None
+
+
+# ── Embedding ──────────────────────────────────────────────────────────────────
+
+class GeminiEmbeddingFunction:
+    """
+    Wraps the Gemini embedding API.
+
+    Key optimisation: embed ALL chunks in a SINGLE batched API call instead of
+    one call per chunk (the original code made N round-trips for N chunks).
+    """
+
+    MODEL = "models/gemini-embedding-001"
+
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        if not input:
+            return []
+        # Single batched request — dramatically faster than N serial requests
+        result = client.models.embed_content(
+            model=self.MODEL,
+            contents=input,
+        )
+        return [emb.values for emb in result.embeddings]
+
+    # ChromaDB calls these two methods
     def embed_query(self, input):
-        if isinstance(input, str):
-            input = [input]
-        return self.__call__(input)
+        return self.__call__([input] if isinstance(input, str) else input)
 
     def embed_documents(self, input):
         return self.__call__(input)
@@ -42,149 +169,143 @@ class GeminiEmbeddingFunction:
         return "gemini-embedding-001"
 
 
+embedding_fn = GeminiEmbeddingFunction()
+
 collection = chroma_client.get_or_create_collection(
     name="resume_chunks",
-    embedding_function=GeminiEmbeddingFunction(),
+    embedding_function=embedding_fn,
 )
 
 
-def read_resume(pdf_path):
-    text = ""
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text
-    return text.strip()
+# ── PDF helpers ────────────────────────────────────────────────────────────────
 
-
-def allowed_file(filename):
+def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def extract_uploaded_pdf_text(uploaded_file):
-    suffix = ".pdf"
+def extract_pdf_text(uploaded_file) -> str:
+    """Save upload to a temp file, extract text, clean up."""
     temp_path = None
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             uploaded_file.save(tmp)
             temp_path = tmp.name
-        return read_resume(temp_path)
+
+        text = ""
+        with pdfplumber.open(temp_path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text
+        return text.strip()
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
 
 
-def chunk_text(text, chunk_size=500, overlap=100):
-    chunks = []
-    start = 0
-    text_length = len(text)
+# ── Chunking + ChromaDB ────────────────────────────────────────────────────────
 
-    while start < text_length:
-        end = min(start + chunk_size, text_length)
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
+    chunks, start = [], 0
+    length = len(text)
+    while start < length:
+        end = min(start + chunk_size, length)
         chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
-        if end == text_length:
+        if end == length:
             break
         start = max(0, end - overlap)
-
     return chunks
 
-def generate_hash(text): 
-    return hashlib.md5(text.encode()).hexdigest()
-    
-def store_resume_chunks(resume_text, original_filename):
-    chunks = chunk_text(resume_text)
-    doc_hash = generate_hash(resume_text)
-    doc_set_id = doc_hash
-    # doc_set_id = str(uuid.uuid4())
+
+def store_resume_chunks(resume_text: str, original_filename: str) -> tuple[str, int]:
+    """
+    Upsert resume chunks into ChromaDB.
+    Returns (doc_set_id, chunk_count).
+
+    Uses content hash so the same resume is never re-embedded — the expensive
+    batch embed call is skipped entirely on cache hits.
+    """
+    doc_set_id = hashlib.md5(resume_text.encode()).hexdigest()
+
     existing = collection.get(where={"doc_set_id": doc_set_id})
     if existing["ids"]:
-        return doc_set_id, len(existing["ids"]) 
-    
+        return doc_set_id, len(existing["ids"])
 
-    ids = [f"{doc_set_id}_{index}" for index in range(len(chunks))]
+    chunks = chunk_text(resume_text)
+    ids = [f"{doc_set_id}_{i}" for i in range(len(chunks))]
     metadatas = [
-        {
-            "doc_set_id": doc_set_id,
-            "filename": original_filename,
-            "chunk_index": index,
-        }
-        for index in range(len(chunks))
+        {"doc_set_id": doc_set_id, "filename": original_filename, "chunk_index": i}
+        for i in range(len(chunks))
     ]
 
-    collection.upsert(
-        ids=ids,
-        documents=chunks,
-        metadatas=metadatas,
-    )
+    # One batch embed call covers ALL chunks
+    collection.upsert(ids=ids, documents=chunks, metadatas=metadatas)
     return doc_set_id, len(chunks)
 
 
-def retrieve_relevant_chunks(job_description, doc_set_id, n_results=6):
+def retrieve_relevant_chunks(
+    job_description: str, doc_set_id: str, n_results: int = 6
+) -> tuple[str, list[float], int]:
     results = collection.query(
         query_texts=[job_description],
         where={"doc_set_id": doc_set_id},
         n_results=n_results,
         include=["documents", "distances"],
     )
-
     documents = results.get("documents", [[]])[0]
     distances = results.get("distances", [[]])[0]
-    context = "\n\n".join(documents)
-    return context, distances, len(documents)
+    return "\n\n".join(documents), distances, len(documents)
 
 
-def analyze_resume_against_jd(resume_context, job_description):
+# ── LLM analysis ──────────────────────────────────────────────────────────────
 
-    prompt = f"""
- You are a strict ATS (Applicant Tracking System) acting as a Senior Technical Recruiter.
- 
-Rules:
-- Be extremely critical.
-- If resume does NOT match job description, give LOW score.
-- Do NOT assume skills not present in resume.
-- Do NOT hallucinate.
-- Base your answer ONLY on provided resume context.
-- If information is missing, explicitly mention it
+def analyze_resume_against_jd(resume_context: str, job_description: str) -> str:
+    prompt = f"""You are a strict ATS (Applicant Tracking System) acting as a Senior Technical Recruiter.
 
-Task:
-Analyze how well the resume matches the job description.
+RULES:
+- Score out of 100. Be extremely critical.
+- Base your entire answer ONLY on the provided resume context. Do NOT hallucinate or assume skills.
+- If skills are missing, state them explicitly.
+- Do NOT use markdown, asterisks, bold, italics, bullet symbols, or backticks.
+- Write in plain text only.
 
-# -Return ONLY valid response, no markdown, no backticks, no extra text, no astrick, no bold, no italics, no underline, no *.
-# Persona: Senior Technical Recruiter.
-# Task: Analyze the retrieved resume context (retrieved from vector database) against the JD.
+TASK:
+Analyze how well the resume matches the job description below.
 
-Resume:
+Resume Context:
 {resume_context}
 
 Job Description:
 {job_description}
 
-Output format:
-Match Score: (0-100)
+OUTPUT FORMAT (plain text, no markdown):
+Match Score Out of 100: [0-100]
 
 Gap Analysis:
-- Missing skills:
-- Weak areas:
+Missing skills: [list]
+Weak areas: [list]
 
 Relevant Matches:
-- Matching skills:
+Matching skills: [list]
 
 Final Verdict:
-- Strong / Moderate / Weak fit
+[Strong / Moderate / Weak fit — one sentence explanation]
 
-
-# Provide: Match Score, Gap Analysis, Google XYZ Bullet Points, and Interview Prep.
+Interview Prep (top 3 questions likely to be asked based on gaps):
+1. [question]
+2. [question]
+3. [question]
 """
-
     response = client.models.generate_content(
-        model="models/gemini-2.5-flash",
+        model="gemini-3.1-flash-lite-preview",
         contents=prompt,
     )
     return response.text
 
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -196,6 +317,7 @@ def analyze():
     job_description = (request.form.get("job_description") or "").strip()
     resume_file = request.files.get("resume")
 
+    # ── Basic presence checks ─────────────────────────────────────────────────
     if resume_file is None or not resume_file.filename:
         return jsonify({"error": "Please upload a resume PDF."}), 400
 
@@ -203,14 +325,26 @@ def analyze():
         return jsonify({"error": "Only PDF files are allowed."}), 400
 
     if not job_description:
-        return jsonify({"error": "job_description is required"}), 400
+        return jsonify({"error": "Please enter a job description."}), 400
+
+    # ── Job description validation (fast, no API calls) ───────────────────────
+    jd_ok, jd_error = validate_job_description(job_description)
+    if not jd_ok:
+        return jsonify({"error": jd_error}), 422
 
     try:
-        resume_text = extract_uploaded_pdf_text(resume_file)
-        if not resume_text:
-            return jsonify({"error": "Could not extract text from the uploaded PDF."}), 400
+        # ── Extract text ──────────────────────────────────────────────────────
+        resume_text = extract_pdf_text(resume_file)
 
+        # ── Resume text validation (fast, no API calls) ───────────────────────
+        resume_ok, resume_error = validate_resume_text(resume_text)
+        if not resume_ok:
+            return jsonify({"error": resume_error}), 422
+
+        # ── Embed + store (batched) ────────────────────────────────────────────
         doc_set_id, chunk_count = store_resume_chunks(resume_text, resume_file.filename)
+
+        # ── Retrieve relevant chunks ──────────────────────────────────────────
         retrieved_context, distances, retrieved_chunks = retrieve_relevant_chunks(
             job_description,
             doc_set_id,
@@ -218,23 +352,23 @@ def analyze():
         )
 
         if not retrieved_context:
-            return jsonify({"error": "No relevant resume chunks found in vector database."}), 400
+            return jsonify({"error": "No relevant resume content found. Please try again."}), 400
 
+        # ── LLM analysis ──────────────────────────────────────────────────────
         analysis = analyze_resume_against_jd(retrieved_context, job_description)
 
-        avg_distance = None
-        if distances:
-            avg_distance = round(float(sum(distances) / len(distances)), 4)
-
-        return jsonify(
-            {
-                "response": analysis,
-                "vector_db": "ChromaDB",
-                "chunks_indexed": chunk_count,
-                "chunks_retrieved": retrieved_chunks,
-                "avg_distance": avg_distance,
-            }
+        avg_distance = (
+            round(sum(distances) / len(distances), 4) if distances else None
         )
+
+        return jsonify({
+            "response": analysis,
+            "vector_db": "ChromaDB",
+            "chunks_indexed": chunk_count,
+            "chunks_retrieved": retrieved_chunks,
+            "avg_distance": avg_distance,
+        })
+
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
