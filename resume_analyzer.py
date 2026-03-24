@@ -2,6 +2,7 @@ import os
 import tempfile
 import uuid
 import hashlib
+import re 
 
 import chromadb
 import google.genai as genai
@@ -205,17 +206,32 @@ def extract_pdf_text(uploaded_file) -> str:
 
 # ── Chunking + ChromaDB ────────────────────────────────────────────────────────
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
-    chunks, start = [], 0
-    length = len(text)
-    while start < length:
-        end = min(start + chunk_size, length)
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end == length:
-            break
-        start = max(0, end - overlap)
+def chunk_text(text: str, chunk_size: int = 600) -> list[str]: 
+    sentences = re.split(r'(?<+[.!?) +', text)
+    
+    chunks = []
+    current_chunk = ""
+
+     for sentence in sentences:
+        if len(current_chunk) + len(sentence) < chunk_size:
+            current_chunk += " " + sentence
+        else:
+            chunks.append(current_chunk.strip())
+            current_chunk = sentence
+
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+        
+    # length = len(text)
+    # while start < length:
+    #     end = min(start + chunk_size, length)
+    #     chunk = text[start:end].strip()
+    #     if chunk:
+    #         chunks.append(chunk)
+    #     if end == length:
+    #         break
+    #     start = max(0, end - overlap)
+
     return chunks
 
 
@@ -236,7 +252,11 @@ def store_resume_chunks(resume_text: str, original_filename: str) -> tuple[str, 
     chunks = chunk_text(resume_text)
     ids = [f"{doc_set_id}_{i}" for i in range(len(chunks))]
     metadatas = [
-        {"doc_set_id": doc_set_id, "filename": original_filename, "chunk_index": i}
+        {"doc_set_id": doc_set_id, 
+         "filename": original_filename, 
+         "chunk_index": i,
+         "chunk_length": len(chunks[i])
+        }
         for i in range(len(chunks))
     ]
 
@@ -245,18 +265,33 @@ def store_resume_chunks(resume_text: str, original_filename: str) -> tuple[str, 
     return doc_set_id, len(chunks)
 
 
-def retrieve_relevant_chunks(
-    job_description: str, doc_set_id: str, n_results: int = 6
-) -> tuple[str, list[float], int]:
+# def retrieve_relevant_chunks(
+#     job_description: str, doc_set_id: str, n_results: int = 6
+# ) -> tuple[str, list[float], int]:
+#     results = collection.query(
+#         query_texts=[job_description],
+#         where={"doc_set_id": doc_set_id},
+#         n_results=n_results,
+#         include=["documents", "distances"],
+#     )
+def retrieve_relevant_chunks(job_description, doc_set_id, n_results=6):
     results = collection.query(
         query_texts=[job_description],
         where={"doc_set_id": doc_set_id},
         n_results=n_results,
         include=["documents", "distances"],
     )
+    
     documents = results.get("documents", [[]])[0]
     distances = results.get("distances", [[]])[0]
-    return "\n\n".join(documents), distances, len(documents)
+ # sort by relevance
+    sorted_pairs = sorted(zip(documents, distances), key=lambda x: x[1])
+
+    top_docs = [doc for doc, _ in sorted_pairs[:4]]
+
+    # return "\n\n".join(documents), distances, len(documents)
+ return "\n\n".join(top_docs), distances, len(top_docs)
+
 
 
 # ── LLM analysis ──────────────────────────────────────────────────────────────
